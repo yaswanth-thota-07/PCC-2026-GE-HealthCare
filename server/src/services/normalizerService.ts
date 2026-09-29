@@ -191,6 +191,12 @@ export function normalizeExtractionPayload(raw: any): Record<string, any> {
       ? false
       : null;
 
+  // Guard: if snippet indicates non-committal or 50% room sharing rule, do not treat as active proportionate deduction
+  const propSnippet = String(raw.sourceSnippets?.proportionateDeduction || '').toLowerCase();
+  if (propSnippet.includes('may be subject to') || propSnippet.includes('50% of the eligible')) {
+    result.proportionateDeduction = false;
+  }
+
   result.subLimits = {};
   if (raw.subLimits && typeof raw.subLimits === 'object') {
     for (const [k, v] of Object.entries(raw.subLimits)) {
@@ -374,7 +380,7 @@ export function normalizePartialPolicyUpdate(raw: any): Record<string, any> {
     result.deductible = normalizeIndianCurrency(raw.deductible);
   }
   if ('proportionateDeduction' in raw) {
-    result.proportionateDeduction =
+    let prop =
       typeof raw.proportionateDeduction === 'boolean'
         ? raw.proportionateDeduction
         : raw.proportionateDeduction === 'true'
@@ -382,6 +388,14 @@ export function normalizePartialPolicyUpdate(raw: any): Record<string, any> {
         : raw.proportionateDeduction === 'false'
         ? false
         : null;
+
+    // Guard: if snippet indicates non-committal or 50% room sharing rule, do not treat as active proportionate deduction
+    const snippet = String(raw.sourceSnippets?.proportionateDeduction || '').toLowerCase();
+    if (snippet.includes('may be subject to') || snippet.includes('50% of the eligible')) {
+      prop = false;
+    }
+
+    result.proportionateDeduction = prop;
   }
   if ('subLimits' in raw) {
     result.subLimits = {};

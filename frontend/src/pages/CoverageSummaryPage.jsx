@@ -302,19 +302,54 @@ export default function CoverageSummaryPage({
 
           {/* Proportionate Deduction Callout */}
           {policy.proportionateDeduction ? (
-            <div className="form-alert form-alert-error" style={{ borderRadius: 'var(--radius-sm)', marginTop: '8px' }}>
-              <ShieldAlert size={18} style={{ flexShrink: 0 }} />
-              <div style={{ fontSize: '12px', lineHeight: 1.4 }}>
-                <strong>{t('summary.fields.proportionateDeduction')}: </strong>
-                {t('summary.values.applicable')}
+            <div className="form-alert form-alert-error" style={{ borderRadius: 'var(--radius-sm)', marginTop: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <ShieldAlert size={18} style={{ flexShrink: 0 }} />
+                <div style={{ fontSize: '12px', lineHeight: 1.4 }}>
+                  <strong>{t('summary.fields.proportionateDeduction')}: </strong>
+                  {t('summary.values.applicable')}
+                </div>
               </div>
+              <button
+                type="button"
+                className="pill-btn pill-btn-ghost pill-btn-sm"
+                style={{ padding: '2px 8px', fontSize: '11px', height: 'auto', background: '#fff', border: '1px solid #fca5a5', cursor: 'pointer' }}
+                onClick={async () => {
+                  try {
+                    const updated = await updatePolicy(policy._id, { proportionateDeduction: false });
+                    onPolicyConfirmed(updated);
+                  } catch (e) {
+                    console.error('Failed to toggle proportionate deduction:', e);
+                  }
+                }}
+              >
+                Set to Not Applicable
+              </button>
             </div>
           ) : (
-            <div className="form-alert form-alert-success" style={{ borderRadius: 'var(--radius-sm)', marginTop: '8px' }}>
-              <ShieldCheck size={18} style={{ flexShrink: 0 }} />
-              <div style={{ fontSize: '12px', lineHeight: 1.4 }}>
-                <strong>{t('summary.values.notApplicable')}</strong>
+            <div className="form-alert form-alert-success" style={{ borderRadius: 'var(--radius-sm)', marginTop: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <ShieldCheck size={18} style={{ flexShrink: 0 }} />
+                <div style={{ fontSize: '12px', lineHeight: 1.4 }}>
+                  <strong>{t('summary.fields.proportionateDeduction')}: </strong>
+                  {t('summary.values.notApplicable')}
+                </div>
               </div>
+              <button
+                type="button"
+                className="pill-btn pill-btn-ghost pill-btn-sm"
+                style={{ padding: '2px 8px', fontSize: '11px', height: 'auto', background: '#fff', border: '1px solid #bbf7d0', cursor: 'pointer' }}
+                onClick={async () => {
+                  try {
+                    const updated = await updatePolicy(policy._id, { proportionateDeduction: true });
+                    onPolicyConfirmed(updated);
+                  } catch (e) {
+                    console.error('Failed to toggle proportionate deduction:', e);
+                  }
+                }}
+              >
+                Set to Applicable
+              </button>
             </div>
           )}
         </div>

@@ -95,6 +95,10 @@ export interface CanonicalFinancialImpact {
   modelledNonMedicalAllowance: number;
   patientPayable: number;
   insurerEstimatedShare: number;
+  sublimitExcess?: number;
+  applicableSublimit?: number | null;
+  sublimitName?: string | null;
+  isSpecialtyExcluded?: boolean;
 }
 
 export interface ScoreBreakdown {
@@ -168,6 +172,10 @@ export interface PolicyImpactBreakdown {
   nonMedicalDeductible: number; // Retained for backwards compatibility
   totalPatientPayable: number;
   totalInsuranceCovered: number;
+  sublimitExcess?: number;
+  applicableSublimit?: number | null;
+  sublimitName?: string | null;
+  isSpecialtyExcluded?: boolean;
   aiRecommendations: {
     type: 'warning' | 'info' | 'success' | 'suggestion';
     title: string;

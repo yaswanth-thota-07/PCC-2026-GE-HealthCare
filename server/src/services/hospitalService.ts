@@ -1015,7 +1015,9 @@ export class HospitalService {
     estimate: HospitalEstimate,
     policy: PolicyDocument,
     networkStatus: NetworkStatus,
-    roomType: RoomCategory = 'General Ward'
+    roomType: RoomCategory = 'General Ward',
+    specialty?: string,
+    procedure?: string
   ): CanonicalFinancialImpact {
     const totalBill = estimate.totalCost;
     const procedureCharges = estimate.treatmentCost;
@@ -1027,6 +1029,43 @@ export class HospitalService {
 
     const isVerified = networkStatus === 'verified';
     const isStatutory = policy.policyType === 'pmjay' || policy.policyType === 'esi';
+
+    // 0. Excluded Department / Treatment Check
+    const isSpecialtyExcluded = Boolean(
+      (specialty || procedure) &&
+      policy.exclusions &&
+      Array.isArray(policy.exclusions) &&
+      policy.exclusions.some(ex => {
+        const e = ex.toLowerCase().trim();
+        const s = (specialty || '').toLowerCase().trim();
+        const p = (procedure || '').toLowerCase().trim();
+        return (s && (s.includes(e) || e.includes(s))) || (p && (p.includes(e) || e.includes(p)));
+      })
+    );
+
+    if (isSpecialtyExcluded) {
+      return {
+        estimatedBill: totalBill,
+        eligibleAmount: 0,
+        roomRentExcess: 0,
+        roomRentExcessPerDay: 0,
+        roomLimitEligiblePerDay: roomRate,
+        roomLimitType: 'Excluded Treatment',
+        proportionateDeductionActive: false,
+        proportionateDisallowance: 0,
+        deductibleApplied: 0,
+        deductibleUnknown: false,
+        effectiveCopayPercent: 0,
+        copayAmount: 0,
+        isCopayUncertain: false,
+        sumInsuredExcess: 0,
+        isSumInsuredUnknown: false,
+        modelledNonMedicalAllowance: 0,
+        patientPayable: totalBill,
+        insurerEstimatedShare: 0,
+        isSpecialtyExcluded: true
+      };
+    }
 
     // 1. Statutory Scheme Handling (PM-JAY & ESI)
     if (isStatutory) {
@@ -1050,7 +1089,8 @@ export class HospitalService {
           isSumInsuredUnknown: false,
           modelledNonMedicalAllowance: 0,
           patientPayable: 0,
-          insurerEstimatedShare: totalBill
+          insurerEstimatedShare: totalBill,
+          isSpecialtyExcluded: false
         };
       } else {
         // Non-empanelled / unverified: statutory cashless benefits do NOT apply
@@ -1072,7 +1112,8 @@ export class HospitalService {
           isSumInsuredUnknown: false,
           modelledNonMedicalAllowance: 0,
           patientPayable: totalBill,
-          insurerEstimatedShare: 0
+          insurerEstimatedShare: 0,
+          isSpecialtyExcluded: false
         };
       }
     }
@@ -1114,6 +1155,34 @@ export class HospitalService {
     const roomRentExcessPerDay = Math.max(0, roomRate - roomLimitEligiblePerDay);
     const totalRoomRentExcess = roomRentExcessPerDay * stayDays;
 
+    // Sublimits evaluation (e.g. Knee Replacement ₹20,000 cap)
+    let sublimitExcess = 0;
+    let applicableSublimit: number | null = null;
+    let sublimitName: string | null = null;
+
+    if (policy.subLimits && typeof policy.subLimits === 'object') {
+      const proc = (procedure || '').toLowerCase().trim();
+      const spec = (specialty || '').toLowerCase().trim();
+      for (const [key, limitVal] of Object.entries(policy.subLimits)) {
+        if (typeof limitVal === 'number' && limitVal > 0) {
+          const k = key.toLowerCase().trim();
+          if (
+            (proc && (proc.includes(k) || k.includes(proc))) ||
+            (spec && (spec.includes(k) || k.includes(spec))) ||
+            (proc.includes('knee') && k.includes('knee'))
+          ) {
+            applicableSublimit = limitVal;
+            sublimitName = key;
+            break;
+          }
+        }
+      }
+    }
+
+    if (applicableSublimit !== null && procedureCharges > applicableSublimit) {
+      sublimitExcess = procedureCharges - applicableSublimit;
+    }
+
     // Proportionate Deduction
     let proportionateDisallowance = 0;
     const proportionateDeductionActive = Boolean(
@@ -1122,14 +1191,15 @@ export class HospitalService {
 
     if (proportionateDeductionActive && roomRate > 0) {
       const allowedRatio = Math.min(1, roomLimitEligiblePerDay / roomRate);
-      const associateMedicalExpenses = procedureCharges + doctorFees;
+      const effectiveProcedure = Math.max(0, procedureCharges - sublimitExcess);
+      const associateMedicalExpenses = effectiveProcedure + doctorFees;
       proportionateDisallowance = Math.round(associateMedicalExpenses * (1 - allowedRatio));
     }
 
     // Eligible amount before deductible & copay
     const eligibleAmount = Math.max(
       0,
-      totalBill - totalRoomRentExcess - proportionateDisallowance
+      totalBill - totalRoomRentExcess - proportionateDisallowance - sublimitExcess
     );
 
     // Deductible Handling (P0.2)
@@ -1189,6 +1259,7 @@ export class HospitalService {
     const patientPayable = Math.round(
       totalRoomRentExcess +
       proportionateDisallowance +
+      sublimitExcess +
       (deductibleApplied ?? 0) +
       copayAmount +
       sumInsuredExcess +
@@ -1215,7 +1286,11 @@ export class HospitalService {
       isSumInsuredUnknown,
       modelledNonMedicalAllowance,
       patientPayable,
-      insurerEstimatedShare
+      insurerEstimatedShare,
+      sublimitExcess,
+      applicableSublimit,
+      sublimitName,
+      isSpecialtyExcluded: false
     };
   }
 
@@ -1250,7 +1325,7 @@ export class HospitalService {
 
       const netInfo = getHospitalNetworkStatus(h, policy.insurer, policy.insurerAliases);
       const isVerified = netInfo.networkStatus === 'verified';
-      const impact = this.calculatePolicyImpact(est, policy, netInfo.networkStatus, roomType);
+      const impact = this.calculatePolicyImpact(est, policy, netInfo.networkStatus, roomType, specialty, procedure);
       const nameRelevance = calculateSpecialtyNameRelevance(h.hospital_name, specialty);
 
       const C = est.totalCost;
@@ -1516,10 +1591,28 @@ export class HospitalService {
     };
 
     // Calculate canonical policy impact using shared engine
-    const impact = this.calculatePolicyImpact(estimate, policy, netInfo.networkStatus, roomType);
+    const impact = this.calculatePolicyImpact(estimate, policy, netInfo.networkStatus, roomType, specialty, procedure);
 
     // AI Smart Recommendations & Advice
     const aiRecommendations: PolicyImpactBreakdown['aiRecommendations'] = [];
+
+    // Department / Treatment Exclusion Notice
+    if (impact.isSpecialtyExcluded) {
+      aiRecommendations.push({
+        type: 'warning',
+        title: 'Department / Treatment Excluded Under Policy',
+        message: `Your policy explicitly excludes ${specialty || procedure || 'this department/treatment'}. Claims arising from or primarily related to this care are not payable by the insurer, so the total bill of ₹${totalBill.toLocaleString('en-IN')} is payable out-of-pocket.`
+      });
+    }
+
+    // Procedure Sublimit Notice
+    if (impact.sublimitExcess && impact.sublimitExcess > 0) {
+      aiRecommendations.push({
+        type: 'warning',
+        title: `Procedure Sublimit Active (${impact.sublimitName || 'Treatment Limit'})`,
+        message: `Your policy caps coverage for ${procedure || 'this procedure'} at ₹${(impact.applicableSublimit || 0).toLocaleString('en-IN')}. The excess treatment expense of ₹${impact.sublimitExcess.toLocaleString('en-IN')} is payable out-of-pocket.`
+      });
+    }
 
     // Authoritative Network Guidance (Section 2, 9, 11)
     if (netInfo.networkStatus === 'verified') {
@@ -1549,7 +1642,7 @@ export class HospitalService {
     }
 
     // Room Rent & Proportionate Deduction Advice
-    if (impact.roomRentExcess > 0) {
+    if (!impact.isSpecialtyExcluded && impact.roomRentExcess > 0) {
       const savingsIfDowngraded = impact.roomRentExcess + impact.proportionateDisallowance;
       aiRecommendations.push({
         type: 'warning',
@@ -1559,7 +1652,7 @@ export class HospitalService {
       });
     }
 
-    if (impact.proportionateDisallowance > 0) {
+    if (!impact.isSpecialtyExcluded && impact.proportionateDisallowance > 0) {
       aiRecommendations.push({
         type: 'warning',
         title: 'Proportionate Deduction Penalty Active',
@@ -1707,6 +1800,10 @@ export class HospitalService {
       nonMedicalDeductible: impact.modelledNonMedicalAllowance,
       totalPatientPayable: impact.patientPayable,
       totalInsuranceCovered: impact.insurerEstimatedShare,
+      sublimitExcess: impact.sublimitExcess,
+      applicableSublimit: impact.applicableSublimit,
+      sublimitName: impact.sublimitName,
+      isSpecialtyExcluded: impact.isSpecialtyExcluded,
       aiRecommendations
     };
   }

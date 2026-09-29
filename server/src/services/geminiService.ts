@@ -27,9 +27,7 @@ RULES
 5. Co-pay: put the base co-pay percentage in "copay". If the document states a
    different co-pay for non-network hospitals, put it in "nonNetworkCopay".
    Put conditional co-pays (age-based, zone-based) in copayConditions.
-6. "proportionateDeduction" is true if the document says associated or other
-   medical expenses are payable in proportion to the eligible room rent or room
-   category. This wording is common; read carefully.
+6. "proportionateDeduction": Set to true ONLY if the document explicitly mandates that associated medical expenses, doctor fees, or surgery charges shall be paid in proportion to the eligible room rent limit. If the document states a specific room-sharing rule (e.g. insurer pays 50% of eligible room amount) or uses non-committal/speculative language like "may be subject to" without an active deduction formula across medical fees, set "proportionateDeduction" to false.
 7. exclusions: list ONLY exclusions relating to these procedures or specialties:
    cardiology, orthopedics, general surgery, oncology, neurology, gynecology,
    maternity, cosmetic, dental. If the document has other exclusions beyond
