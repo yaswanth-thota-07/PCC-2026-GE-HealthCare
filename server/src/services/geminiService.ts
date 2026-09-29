@@ -28,10 +28,7 @@ RULES
    different co-pay for non-network hospitals, put it in "nonNetworkCopay".
    Put conditional co-pays (age-based, zone-based) in copayConditions.
 6. "proportionateDeduction": Set to true ONLY if the document explicitly mandates that associated medical expenses, doctor fees, or surgery charges shall be paid in proportion to the eligible room rent limit. If the document states a specific room-sharing rule (e.g. insurer pays 50% of eligible room amount) or uses non-committal/speculative language like "may be subject to" without an active deduction formula across medical fees, set "proportionateDeduction" to false.
-7. exclusions: list ONLY exclusions relating to these procedures or specialties:
-   cardiology, orthopedics, general surgery, oncology, neurology, gynecology,
-   maternity, cosmetic, dental. If the document has other exclusions beyond
-   these, set hasOtherExclusions to true. Do not list all exclusions.
+7. exclusions: list all clinical departments, medical specialties, or specific procedures that are excluded or not covered under this policy (e.g. cardiology, neurology, orthopedics, oncology, general surgery, gynecology, urology, maternity, dental, cataract, cosmetic, etc.). For standard non-medical/statutory exclusions (like war, criminal acts, self-inflicted injury, alcohol/drug abuse), set "hasOtherExclusions" to true rather than listing them individually.
 8. Amounts: return plain integers in rupees. "3 Lakhs" -> 300000. No symbols,
    no commas, no strings.
 9. Percentages: plain numbers. "10%" -> 10.
