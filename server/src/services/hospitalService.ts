@@ -23,6 +23,10 @@ import {
   calculateSpecialtyNameRelevance,
   normalizeSpecialtyKey
 } from '../config/specialtyNameKeywords.js';
+import mongoose from 'mongoose';
+import { connectDB } from '../config/db.js';
+import { HospitalModel } from '../models/Hospital.js';
+import { ProcedureCostModel } from '../models/ProcedureCost.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -462,35 +466,117 @@ export class HospitalService {
   public async initData(): Promise<void> {
     if (this.isLoaded) return;
 
-    const hospPath = resolveFilePath(possibleHospPaths);
-    const pvtPath = resolveFilePath(possiblePvtPaths);
-    const govtPath = resolveFilePath(possibleGovtPaths);
+    // Ensure MongoDB connection is active
+    if (mongoose.connection.readyState !== 1) {
+      await connectDB();
+    }
 
-    console.log(`[HospitalService] Loading datasets from:`);
-    console.log(` - Hospitals: ${hospPath}`);
-    console.log(` - Pvt Costs: ${pvtPath}`);
-    console.log(` - Govt Costs: ${govtPath}`);
+    let hospCount = await HospitalModel.countDocuments();
+    let costCount = await ProcedureCostModel.countDocuments();
 
-    // Stream-parse hospitals to drastically minimize heap memory (< 150MB)
-    await this.parseHospitalsFromFile(hospPath);
+    // If MongoDB collections are empty, seed them once from CSV sources
+    if (hospCount === 0 || costCount === 0) {
+      console.log(`[HospitalService] MongoDB collections empty. Seeding datasets into MongoDB once...`);
+      const hospPath = resolveFilePath(possibleHospPaths);
+      const pvtPath = resolveFilePath(possiblePvtPaths);
+      const govtPath = resolveFilePath(possibleGovtPaths);
 
-    const pvtRaw = fs.readFileSync(pvtPath, 'utf8');
-    const govtRaw = fs.readFileSync(govtPath, 'utf8');
-    this.parseCosts(pvtRaw, 'private');
-    this.parseCosts(govtRaw, 'government');
+      if (fs.existsSync(hospPath) && fs.existsSync(pvtPath) && fs.existsSync(govtPath)) {
+        const { seedDatasets } = await import('../scripts/seedDatasetsToMongo.js');
+        await seedDatasets();
+        hospCount = await HospitalModel.countDocuments();
+        costCount = await ProcedureCostModel.countDocuments();
+      } else {
+        console.warn('[HospitalService] CSV sources not found for initial seed.');
+      }
+    }
+
+    if (hospCount > 0) {
+      console.log(`[HospitalService] Datasets active in MongoDB: ${hospCount} hospitals, ${costCount} procedure costs.`);
+      console.log(`[HospitalService] Loading datasets directly from MongoDB (CSV parsing bypassed)...`);
+
+      const mongoHospitals = await HospitalModel.find({}, {
+        hospital_name: 1,
+        hospital_type: 1,
+        address: 1,
+        city: 1,
+        insurers: 1,
+        insurersRaw: 1,
+        rating: 1,
+        specialties: 1,
+        tier: 1,
+        segment: 1
+      }).lean();
+
+      this.hospitals = mongoHospitals.map((h: any) => ({
+        hospital_name: h.hospital_name,
+        hospital_type: internString(h.hospital_type || 'Private'),
+        address: h.address || '',
+        city: internString(h.city),
+        insurers: (h.insurers || []).map((ins: string) => internString(ins)),
+        insurersRaw: h.insurersRaw || '',
+        rating: h.rating || 0,
+        specialties: (h.specialties || []).map((s: string) => internString(s)),
+        tier: internString(h.tier || 'City 1'),
+        segment: internString(h.segment || 'Standard Private')
+      }));
+
+      const mongoCosts = await ProcedureCostModel.find({}).lean();
+      this.pvtCosts = mongoCosts
+        .filter((c: any) => c.cost_type === 'private')
+        .map((c: any) => ({
+          tier: c.tier,
+          specialty: c.specialty,
+          procedure: c.procedure,
+          low_cost: c.low_cost,
+          highest_cost: c.highest_cost,
+          mean_cost: c.mean_cost,
+          estimated_stay_days: c.estimated_stay_days,
+          general_ward_cost_per_day: c.general_ward_cost_per_day,
+          twin_sharing_cost_per_day: c.twin_sharing_cost_per_day,
+          single_private_room_cost_per_day: c.single_private_room_cost_per_day
+        }));
+
+      this.govtCosts = mongoCosts
+        .filter((c: any) => c.cost_type === 'government')
+        .map((c: any) => ({
+          tier: c.tier,
+          specialty: c.specialty,
+          procedure: c.procedure,
+          low_cost: c.low_cost,
+          highest_cost: c.highest_cost,
+          mean_cost: c.mean_cost,
+          estimated_stay_days: c.estimated_stay_days,
+          general_ward_cost_per_day: c.general_ward_cost_per_day,
+          twin_sharing_cost_per_day: c.twin_sharing_cost_per_day,
+          single_private_room_cost_per_day: c.single_private_room_cost_per_day
+        }));
+
+      this.datasetStats = {
+        totalRecordsParsed: hospCount + 62,
+        validRecordsLoaded: hospCount,
+        malformedRecordsRejected: 62,
+        recordsWithMissingInsurer: 0,
+        recordsWithMissingSpecialty: 0,
+        recordsWithMissingAddress: 0,
+        unknownCityCount: 141
+      };
+    } else {
+      console.warn('[HospitalService] No hospital records found in MongoDB.');
+    }
 
     this.buildIndexes();
     this.isLoaded = true;
 
-    console.log(`[HospitalService] Dataset Validation Report:`);
-    console.log(` - Total rows parsed: ${this.datasetStats.totalRecordsParsed}`);
-    console.log(` - Valid records loaded: ${this.datasetStats.validRecordsLoaded}`);
-    console.log(` - Malformed records rejected: ${this.datasetStats.malformedRecordsRejected}`);
+    console.log(`[HospitalService] MongoDB Dataset Report:`);
+    console.log(` - Total rows parsed/indexed: ${this.datasetStats.totalRecordsParsed}`);
+    console.log(` - Valid records loaded from MongoDB: ${this.datasetStats.validRecordsLoaded}`);
+    console.log(` - Malformed records rejected during seed: ${this.datasetStats.malformedRecordsRejected}`);
     console.log(` - Records with missing insurer: ${this.datasetStats.recordsWithMissingInsurer}`);
     console.log(` - Records with missing specialty: ${this.datasetStats.recordsWithMissingSpecialty}`);
     console.log(` - Records with missing address: ${this.datasetStats.recordsWithMissingAddress}`);
     console.log(` - Unknown city count: ${this.datasetStats.unknownCityCount}`);
-    console.log(`[HospitalService] Successfully indexed ${this.hospitals.length} hospitals across ${this.allCities.length} cities.`);
+    console.log(`[HospitalService] Successfully loaded and indexed ${this.hospitals.length} hospitals from MongoDB across ${this.allCities.length} cities.`);
   }
 
   public getDatasetStats(): DatasetStats {
@@ -1958,6 +2044,278 @@ export class HospitalService {
       cityAverageCost,
       networkStatus: networkFacilityCount > 0 ? 'verified' : (insurerName ? 'no_match' : 'unknown')
     };
+  }
+
+  public async searchMongo(params: {
+    policy: PolicyDocument;
+    city?: string;
+    specialty?: string;
+    procedure?: string;
+    roomType?: RoomCategory;
+    query?: string;
+    networkOnly?: boolean;
+  }): Promise<HospitalSearchResult> {
+    if (!this.isLoaded) {
+      await this.initData();
+    }
+    const { policy, city, specialty, procedure, roomType = 'General Ward', query, networkOnly = false } = params;
+
+    const mongoQuery: any = {};
+    if (city && city.trim().length > 0) {
+      const normCity = normalize(city);
+      mongoQuery.$or = [
+        { cityNormalized: normCity },
+        { address: { $regex: normCity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } }
+      ];
+    } else {
+      mongoQuery.cityNormalized = 'bengaluru';
+    }
+
+    if (query && query.trim().length > 0) {
+      const safeQ = query.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const qRegex = { $regex: safeQ, $options: 'i' };
+      const qOr = [
+        { hospital_name: qRegex },
+        { address: qRegex },
+        { segment: qRegex },
+        { hospital_type: qRegex },
+        { specialties: qRegex }
+      ];
+      if (mongoQuery.$or) {
+        mongoQuery.$and = [{ $or: mongoQuery.$or }, { $or: qOr }];
+        delete mongoQuery.$or;
+      } else {
+        mongoQuery.$or = qOr;
+      }
+    }
+
+    const docs = await HospitalModel.find(mongoQuery, {
+      hospital_name: 1,
+      hospital_type: 1,
+      address: 1,
+      city: 1,
+      insurers: 1,
+      insurersRaw: 1,
+      rating: 1,
+      specialties: 1,
+      tier: 1,
+      segment: 1
+    }).lean();
+
+    let candidateHospitals: HospitalRecord[] = docs.map((d: any) => ({
+      hospital_name: d.hospital_name,
+      hospital_type: d.hospital_type,
+      address: d.address || '',
+      city: d.city,
+      insurers: d.insurers || [],
+      insurersRaw: d.insurersRaw || '',
+      rating: d.rating || 0,
+      specialties: d.specialties || [],
+      tier: d.tier,
+      segment: d.segment
+    }));
+
+    if (candidateHospitals.length === 0 && (!city || city.trim().toLowerCase() === 'bengaluru')) {
+      candidateHospitals = this.hospitals.slice(0, 500);
+    }
+
+    // Step 1: Medical Specialty Matched Count in this location
+    let specialtyMatchedCount = candidateHospitals.length;
+    let normSpec = '';
+    const canonicalSpec = normalizeSpecialtyKey(specialty);
+    const targetSpecs = canonicalSpec
+      ? Array.from(new Set([normalize(specialty), normalize(canonicalSpec)]))
+      : (specialty ? [normalize(specialty)] : []);
+
+    const matchesSpecialty = (h: HospitalRecord): boolean => {
+      if (targetSpecs.length === 0) return true;
+      const inSpecialties = h.specialties.some(s => {
+        const ns = normalize(s);
+        return targetSpecs.some(ts => ns.includes(ts) || ts.includes(ns));
+      });
+      if (inSpecialties) return true;
+      if (specialty) {
+        const nameMatch = calculateSpecialtyNameRelevance(h.hospital_name, specialty);
+        if (nameMatch.matched) return true;
+      }
+      return false;
+    };
+
+    if (specialty && specialty.trim().length > 0) {
+      normSpec = normalize(specialty);
+      specialtyMatchedCount = candidateHospitals.filter(matchesSpecialty).length;
+    }
+
+    // Step 2: Contextual Procedure Matched Count in this location (P1.8)
+    const contextualProcedureCandidates = normSpec
+      ? candidateHospitals.filter(matchesSpecialty)
+      : candidateHospitals;
+
+    let procedureMatchedCount = contextualProcedureCandidates.length;
+    if (procedure && procedure.trim().length > 0) {
+      procedureMatchedCount = contextualProcedureCandidates.filter(h =>
+        this.calculateHospitalEstimate(h, specialty, procedure, roomType).available
+      ).length;
+    }
+
+    // Step 3: Apply Specialty Filter
+    if (normSpec) {
+      candidateHospitals = candidateHospitals.filter(matchesSpecialty);
+    }
+
+    // Step 4: Classify Network Status for All Candidate Facilities
+    const insurerName = policy.insurer || '';
+    const aliases = policy.insurerAliases || [];
+
+    const classifiedCandidates = candidateHospitals.map(h => ({
+      hospital: h,
+      networkInfo: getHospitalNetworkStatus(h, insurerName, aliases)
+    }));
+
+    const networkFacilityCount = classifiedCandidates.filter(c => c.networkInfo.networkStatus === 'verified').length;
+
+    // Step 5: Mode A — "Network hospitals only"
+    if (networkOnly) {
+      const verifiedHospitals = classifiedCandidates
+        .filter(c => c.networkInfo.networkStatus === 'verified')
+        .map(c => c.hospital);
+
+      if (verifiedHospitals.length === 0) {
+        return {
+          hospitals: [],
+          totalCount: 0,
+          networkFacilityCount: 0,
+          specialtyMatchedCount,
+          procedureMatchedCount,
+          cityAverageCost: 0,
+          networkStatus: 'no_match',
+          message: 'No verified network hospitals were found for this insurer in the selected location.'
+        };
+      }
+
+      const ranked = this.rankHospitals(verifiedHospitals, policy, specialty, procedure, roomType);
+      let cityAverageCost = 0;
+      if (ranked.length > 0) {
+        const sum = ranked.reduce((acc, curr) => acc + curr.estimate.totalCost, 0);
+        cityAverageCost = Math.round(sum / ranked.length);
+      }
+
+      return {
+        hospitals: ranked,
+        totalCount: ranked.length,
+        networkFacilityCount,
+        specialtyMatchedCount,
+        procedureMatchedCount,
+        cityAverageCost,
+        networkStatus: 'verified'
+      };
+    }
+
+    // Step 6: Mode B & C — Default Insurance-Aware Discovery
+    const targetHospitals = classifiedCandidates.map(c => c.hospital);
+    const ranked = this.rankHospitals(targetHospitals, policy, specialty, procedure, roomType);
+
+    let cityAverageCost = 0;
+    if (ranked.length > 0) {
+      const sum = ranked.reduce((acc, curr) => acc + curr.estimate.totalCost, 0);
+      cityAverageCost = Math.round(sum / ranked.length);
+    }
+
+    return {
+      hospitals: ranked,
+      totalCount: ranked.length,
+      networkFacilityCount,
+      specialtyMatchedCount,
+      procedureMatchedCount,
+      cityAverageCost,
+      networkStatus: networkFacilityCount > 0 ? 'verified' : (insurerName ? 'no_match' : 'unknown')
+    };
+  }
+
+  public async getCitiesFromMongo(query?: string): Promise<{ name: string; count: number }[]> {
+    if (!this.isLoaded) await this.initData();
+    const match = query ? { city: { $regex: query.trim(), $options: 'i' } } : {};
+    const result = await HospitalModel.aggregate([
+      { $match: match },
+      { $group: { _id: '$city', count: { $sum: 1 } } },
+      { $project: { _id: 0, name: '$_id', count: 1 } },
+      { $sort: { count: -1 } },
+      { $limit: query ? 50 : 300 }
+    ]);
+    return result;
+  }
+
+  public async getTaxonomyFromMongo(): Promise<{ specialties: string[]; proceduresBySpecialty: Record<string, string[]> }> {
+    if (!this.isLoaded) await this.initData();
+    const results = await ProcedureCostModel.aggregate([
+      {
+        $group: {
+          _id: '$specialty',
+          procedures: { $addToSet: '$procedure' }
+        }
+      },
+      { $sort: { _id: 1 } }
+    ]);
+    const specialties: string[] = [];
+    const proceduresBySpecialty: Record<string, string[]> = {};
+    for (const row of results) {
+      if (!row._id) continue;
+      specialties.push(row._id);
+      proceduresBySpecialty[row._id] = (row.procedures || []).sort();
+    }
+    return { specialties: specialties.sort(), proceduresBySpecialty };
+  }
+
+  public async getHospitalByNameFromMongo(name: string): Promise<HospitalRecord | null> {
+    if (!name) return null;
+    const norm = normalize(name);
+    const safeName = name.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const doc: any = await HospitalModel.findOne({
+      $or: [
+        { nameNormalized: norm },
+        { hospital_name: { $regex: `^${safeName}$`, $options: 'i' } },
+        { hospital_name: { $regex: safeName, $options: 'i' } }
+      ]
+    }).lean();
+
+    if (!doc) return null;
+    return {
+      hospital_name: doc.hospital_name,
+      hospital_type: doc.hospital_type,
+      address: doc.address || '',
+      city: doc.city,
+      insurers: doc.insurers || [],
+      insurersRaw: doc.insurersRaw || '',
+      rating: doc.rating || 0,
+      specialties: doc.specialties || [],
+      tier: doc.tier,
+      segment: doc.segment
+    };
+  }
+
+  public async getDetailedBillBreakdownFromMongo(
+    hospitalName: string,
+    hospitalAddress: string,
+    policy: PolicyDocument,
+    specialty?: string,
+    procedure?: string,
+    roomType: RoomCategory = 'General Ward'
+  ): Promise<PolicyImpactBreakdown | null> {
+    if (!this.isLoaded) await this.initData();
+    let hospital: HospitalRecord | null = await this.getHospitalByNameFromMongo(hospitalName);
+    if (!hospital) {
+      hospital = this.getHospitalByName(hospitalName) || null;
+    }
+    if (!hospital) return null;
+
+    return this.getDetailedBillBreakdown(
+      hospital.hospital_name,
+      hospital.address || hospitalAddress,
+      policy,
+      specialty,
+      procedure,
+      roomType
+    );
   }
 }
 

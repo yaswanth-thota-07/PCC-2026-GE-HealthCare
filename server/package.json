@@ -9,6 +9,8 @@
     "start": "node dist/index.js",
     "gen:policies": "tsx src/scripts/generatePdfs.ts",
     "seed": "tsx src/scripts/seedDemos.ts",
+    "seed:dataset": "tsx src/scripts/seedDatasetsToMongo.ts",
+    "seed:db": "tsx src/scripts/seedDatasetsToMongo.ts",
     "test": "vitest run"
   },
   "dependencies": {

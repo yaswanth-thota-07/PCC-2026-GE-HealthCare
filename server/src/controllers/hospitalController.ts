@@ -92,14 +92,9 @@ async function resolvePolicy(policyId?: string, fallbackPolicy?: Partial<PolicyD
 
 export async function getCities(req: Request, res: Response): Promise<void> {
   try {
-    const q = typeof req.query.q === 'string' ? req.query.q.trim().toLowerCase() : '';
-    let cities = hospitalService.getCities();
-    if (q) {
-      const filtered = cities.filter((c) => c.name.toLowerCase().includes(q));
-      res.json({ cities: filtered.slice(0, 50) });
-    } else {
-      res.json({ cities: cities.slice(0, 300) });
-    }
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const cities = await hospitalService.getCitiesFromMongo(q);
+    res.json({ cities });
   } catch (err: any) {
     res.status(500).json({ error: { message: err.message || 'Failed to fetch cities.' } });
   }
@@ -107,7 +102,7 @@ export async function getCities(req: Request, res: Response): Promise<void> {
 
 export async function getTaxonomy(_req: Request, res: Response): Promise<void> {
   try {
-    const taxonomy = hospitalService.getTaxonomy();
+    const taxonomy = await hospitalService.getTaxonomyFromMongo();
     res.json(taxonomy);
   } catch (err: any) {
     res.status(500).json({ error: { message: err.message || 'Failed to fetch clinical taxonomy.' } });
@@ -124,7 +119,7 @@ export async function searchHospitals(req: Request, res: Response): Promise<void
       (policy.insurer && policy.insurer.trim() && networkOnly !== false)
     );
 
-    const result = hospitalService.search({
+    const result = await hospitalService.searchMongo({
       policy,
       city: city || 'Bengaluru',
       specialty,
@@ -181,7 +176,7 @@ export async function getHospitalCostBreakdown(req: Request, res: Response): Pro
     }
 
     const policy = await resolvePolicy(policyId, reqPolicy);
-    const breakdown = hospitalService.getDetailedBillBreakdown(
+    const breakdown = await hospitalService.getDetailedBillBreakdownFromMongo(
       hospitalName,
       hospitalAddress || '',
       policy,
