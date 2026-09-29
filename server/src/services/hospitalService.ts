@@ -1,4 +1,5 @@
 import fs from 'fs';
+import readline from 'readline';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import {
@@ -416,6 +417,17 @@ export function parseCSVRecords(csvText: string): string[][] {
   return records;
 }
 
+const STRING_POOL = new Map<string, string>();
+function internString(str: string): string {
+  if (!str) return '';
+  let cached = STRING_POOL.get(str);
+  if (!cached) {
+    cached = str;
+    STRING_POOL.set(str, cached);
+  }
+  return cached;
+}
+
 export function parseCSVLine(text: string): string[] {
   const records = parseCSVRecords(text);
   return records.length > 0 ? records[0] : [];
@@ -459,11 +471,11 @@ export class HospitalService {
     console.log(` - Pvt Costs: ${pvtPath}`);
     console.log(` - Govt Costs: ${govtPath}`);
 
-    const hospRaw = fs.readFileSync(hospPath, 'utf8');
+    // Stream-parse hospitals to drastically minimize heap memory (< 150MB)
+    await this.parseHospitalsFromFile(hospPath);
+
     const pvtRaw = fs.readFileSync(pvtPath, 'utf8');
     const govtRaw = fs.readFileSync(govtPath, 'utf8');
-
-    this.parseHospitals(hospRaw);
     this.parseCosts(pvtRaw, 'private');
     this.parseCosts(govtRaw, 'government');
 
@@ -483,6 +495,117 @@ export class HospitalService {
 
   public getDatasetStats(): DatasetStats {
     return { ...this.datasetStats };
+  }
+
+  public async parseHospitalsFromFile(filePath: string): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const fileStream = fs.createReadStream(filePath, { encoding: 'utf8' });
+      const rl = readline.createInterface({ input: fileStream, crlfDelay: Infinity });
+
+      let headers: string[] = [];
+      let isFirstLine = true;
+      let totalParsed = 0;
+      let malformedCount = 0;
+      let missingInsurerCount = 0;
+      let missingSpecialtyCount = 0;
+      let missingAddressCount = 0;
+      let unknownCityCount = 0;
+
+      const records: HospitalRecord[] = [];
+
+      rl.on('line', (line) => {
+        if (!line.trim()) return;
+        if (isFirstLine) {
+          headers = parseCSVLine(line).map(h => h.trim());
+          isFirstLine = false;
+          return;
+        }
+
+        totalParsed++;
+        const cols = parseCSVLine(line);
+        if (cols.length < headers.length) {
+          malformedCount++;
+          return;
+        }
+
+        const obj: Record<string, string> = {};
+        for (let j = 0; j < headers.length; j++) {
+          obj[headers[j]] = cols[j] !== undefined ? cols[j].trim() : '';
+        }
+
+        const hospitalName = obj.hospital_name || '';
+        const address = obj.address || '';
+
+        if (!hospitalName.trim() && !address.trim()) {
+          malformedCount++;
+          return;
+        }
+
+        if (!address.trim()) {
+          missingAddressCount++;
+        }
+
+        const extractedCity = extractCity(address);
+        const city = internString(normalizeCity(extractedCity));
+        if (city === 'Other' || city === 'Unknown') {
+          unknownCityCount++;
+        }
+
+        let ratingVal = parseFloat(obj.rating);
+        if (isNaN(ratingVal) || ratingVal <= 0) {
+          ratingVal = 0;
+        }
+
+        const specialties = (obj.specialties || '')
+          .split(';')
+          .map(s => internString(s.trim()))
+          .filter(Boolean);
+
+        if (specialties.length === 0) {
+          missingSpecialtyCount++;
+        }
+
+        const insurersList = (obj.insurers || '')
+          .split(',')
+          .map(ins => internString(ins.trim()))
+          .filter(Boolean);
+
+        if (insurersList.length === 0) {
+          missingInsurerCount++;
+        }
+
+        const canonicalTier = internString(CITY_CANONICAL_TIERS[normalize(city)] || obj.tier || 'City 1');
+
+        records.push({
+          hospital_name: hospitalName || 'Unnamed Hospital',
+          hospital_type: internString(obj.hospital_type || 'Private'),
+          address,
+          city,
+          insurers: insurersList,
+          insurersRaw: obj.insurers || '',
+          rating: ratingVal,
+          specialties,
+          tier: canonicalTier,
+          segment: internString(obj.segment || 'Standard Private')
+        });
+      });
+
+      rl.on('close', () => {
+        this.hospitals = records;
+        this.datasetStats = {
+          totalRecordsParsed: totalParsed,
+          validRecordsLoaded: records.length,
+          malformedRecordsRejected: malformedCount,
+          recordsWithMissingInsurer: missingInsurerCount,
+          recordsWithMissingSpecialty: missingSpecialtyCount,
+          recordsWithMissingAddress: missingAddressCount,
+          unknownCityCount
+        };
+        resolve();
+      });
+
+      rl.on('error', reject);
+    });
   }
 
   public parseHospitals(csvText: string): void {

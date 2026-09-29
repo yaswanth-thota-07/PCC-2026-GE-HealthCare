@@ -95,7 +95,7 @@ if (frontendDistPath) {
 
   // SPA fallback for all non-API GET routes
   app.get('*', (req, res, next) => {
-    if (req.path.startsWith('/api') || req.path.startsWith('/mock-policies')) {
+    if (req.path.startsWith('/api') || req.path.startsWith('/mock-policies') || req.path.startsWith('/uploads')) {
       return next();
     }
     const indexPath = path.join(frontendDistPath!, 'index.html');
