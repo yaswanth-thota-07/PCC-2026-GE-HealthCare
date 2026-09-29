@@ -64,6 +64,17 @@ export async function updatePolicy(id, updates) {
   return data;
 }
 
+export async function deletePolicyApi(id) {
+  const res = await fetch(`/api/policy/${id}`, {
+    method: 'DELETE'
+  });
+  const data = await res.json();
+  if (!res.ok) {
+    throw new Error(data.error?.message || 'Failed to delete policy.');
+  }
+  return data;
+}
+
 export async function signupApi(name, email, password, confirmPassword) {
   const res = await fetch('/api/auth/signup', {
     method: 'POST',

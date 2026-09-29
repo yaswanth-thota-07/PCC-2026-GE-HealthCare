@@ -6,7 +6,8 @@ import {
   createPolicyFromDemo,
   getPolicyById,
   updatePolicy,
-  getPolicyDocument
+  getPolicyDocument,
+  deletePolicy
 } from '../controllers/policyController.js';
 
 const router = Router();
@@ -34,5 +35,8 @@ router.get('/:id/document', getPolicyDocument);
 
 // Update Policy & Confirm (Sets confirmedByUser: true if Tier 1 complete)
 router.put('/:id', updatePolicy);
+
+// Delete Policy (and unlink from users)
+router.delete('/:id', deletePolicy);
 
 export default router;

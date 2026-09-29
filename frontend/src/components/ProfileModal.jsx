@@ -23,18 +23,42 @@ export default function ProfileModal({
   onSelectPolicy,
   onGoToUpload,
   onSelectHospitalForDiscovery,
-  onTrackJourneyWithHospital
+  onTrackJourneyWithHospital,
+  onDeletePolicy
 }) {
-  const { user, logout, savedHospitals, userPolicies, toggleSaveHospital } = useAuth();
+  const { user, logout, savedHospitals, userPolicies, toggleSaveHospital, removePolicy } = useAuth();
   const [activeTab, setActiveTab] = useState('policies'); // 'policies' or 'hospitals'
+  const [deletingPolicyId, setDeletingPolicyId] = useState(null);
+  const [deletedIds, setDeletedIds] = useState(new Set());
 
   if (!isOpen || !user) return null;
 
   // Aggregate user policies: any from backend plus current activePolicy if not already present
-  const allPolicies = [...(userPolicies || [])];
-  if (activePolicy && activePolicy._id && !allPolicies.some(p => p._id === activePolicy._id)) {
+  const allPolicies = [...(userPolicies || [])].filter(p => !deletedIds.has(p._id));
+  if (activePolicy && activePolicy._id && !deletedIds.has(activePolicy._id) && !allPolicies.some(p => p._id === activePolicy._id)) {
     allPolicies.unshift(activePolicy);
   }
+
+  const handleDeletePolicy = async (p, e) => {
+    e.stopPropagation();
+    const policyName = p.planName || p.insurer || 'this policy';
+    if (!window.confirm(`Are you sure you want to delete "${policyName}"? This policy will be permanently removed.`)) {
+      return;
+    }
+
+    try {
+      setDeletingPolicyId(p._id);
+      await removePolicy(p._id);
+      setDeletedIds(prev => new Set([...prev, p._id]));
+      if (onDeletePolicy) {
+        onDeletePolicy(p._id);
+      }
+    } catch (err) {
+      alert(err.message || 'Failed to delete policy.');
+    } finally {
+      setDeletingPolicyId(null);
+    }
+  };
 
   const handleLogout = () => {
     logout();
@@ -348,6 +372,41 @@ export default function ProfileModal({
                             <FileText size={14} />
                             <span>View Summary</span>
                             <ArrowRight size={13} />
+                          </button>
+
+                          <button
+                            type="button"
+                            className="pill-btn pill-btn-ghost pill-btn-sm"
+                            style={{
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '5px',
+                              color: '#dc2626',
+                              background: '#fff',
+                              border: '1px solid #fecaca',
+                              padding: '7px 11px',
+                              fontSize: '12.5px',
+                              fontWeight: 600,
+                              cursor: deletingPolicyId === p._id ? 'not-allowed' : 'pointer',
+                              transition: 'all 0.15s ease',
+                              opacity: deletingPolicyId === p._id ? 0.6 : 1
+                            }}
+                            onMouseEnter={(e) => {
+                              if (deletingPolicyId !== p._id) {
+                                e.currentTarget.style.background = '#fef2f2';
+                                e.currentTarget.style.borderColor = '#f87171';
+                              }
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.background = '#fff';
+                              e.currentTarget.style.borderColor = '#fecaca';
+                            }}
+                            onClick={(e) => handleDeletePolicy(p, e)}
+                            disabled={deletingPolicyId === p._id}
+                            title="Delete this policy"
+                          >
+                            <Trash2 size={14} />
+                            <span>{deletingPolicyId === p._id ? 'Deleting…' : 'Delete'}</span>
                           </button>
                         </div>
                       </div>

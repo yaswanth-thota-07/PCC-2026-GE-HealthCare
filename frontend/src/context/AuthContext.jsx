@@ -4,7 +4,8 @@ import {
   signupApi,
   getProfileApi,
   toggleSaveHospitalApi,
-  linkPolicyApi
+  linkPolicyApi,
+  deletePolicyApi
 } from '../services/api';
 
 const AuthContext = createContext(null);
@@ -177,6 +178,20 @@ export function AuthProvider({ children }) {
     }
   };
 
+  const removePolicy = async (policyId) => {
+    if (!policyId) return;
+    try {
+      await deletePolicyApi(policyId);
+      setUserPolicies((prev) => prev.filter((p) => p._id !== policyId));
+      if (token) {
+        loadProfile(token);
+      }
+    } catch (err) {
+      console.error('Failed to remove policy:', err);
+      throw err;
+    }
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -191,7 +206,8 @@ export function AuthProvider({ children }) {
         toggleSaveHospital,
         isHospitalSaved,
         loadProfile,
-        linkCurrentPolicy
+        linkCurrentPolicy,
+        removePolicy
       }}
     >
       {children}

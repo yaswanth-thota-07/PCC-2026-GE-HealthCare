@@ -207,6 +207,22 @@ export default function App() {
     setCurrentView('journey');
   };
 
+  const handleDeletePolicyFromProfile = (deletedPolicyId) => {
+    if (activePolicy && activePolicy._id === deletedPolicyId) {
+      setActivePolicy(null);
+      setJourneyHospital(null);
+      setJourneyProcedure('');
+      setJourneyRoom('General Ward');
+      if (currentView === 'summary' || currentView === 'discovery' || currentView === 'journey') {
+        setCurrentView('upload');
+      }
+      try {
+        localStorage.removeItem('sehatsure_session');
+      } catch {}
+      window.history.pushState({}, '', '/');
+    }
+  };
+
   return (
     <div className="app-shell">
       <Navbar
@@ -289,6 +305,7 @@ export default function App() {
           setCurrentView('discovery');
         }}
         onTrackJourneyWithHospital={handleTrackJourneyFromProfile}
+        onDeletePolicy={handleDeletePolicyFromProfile}
       />
     </div>
   );

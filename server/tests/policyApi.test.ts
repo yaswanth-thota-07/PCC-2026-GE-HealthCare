@@ -131,4 +131,21 @@ describe('Policy API & Gemini Client Mocking', () => {
     expect(result.data.copay).toBe(10);
     expect(result.data.proportionateDeduction).toBe(true);
   });
+
+  it('DELETE /api/policy/:id deletes the policy from database', async () => {
+    const testId = `test_del_${Date.now()}`;
+    await Policy.create({
+      _id: testId,
+      insurer: 'Test Insurer to Delete',
+      policyType: 'private',
+      sumInsured: 500000
+    });
+
+    const res = await request(app).delete(`/api/policy/${testId}`);
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+
+    const doc = await Policy.findById(testId);
+    expect(doc).toBeNull();
+  });
 });

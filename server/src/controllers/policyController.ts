@@ -4,6 +4,7 @@ import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Policy } from '../models/Policy.js';
+import { User } from '../models/User.js';
 import { geminiService } from '../services/geminiService.js';
 import { applySchemeOverrides, applyTier2Defaults } from '../services/overrideService.js';
 import { getMissingTier1Fields, getLowConfidenceFields } from '../schemas/policySchema.js';
@@ -289,6 +290,61 @@ export async function getPolicyDocument(req: Request, res: Response): Promise<vo
       error: {
         code: 'INTERNAL_SERVER_ERROR',
         message: err.message || 'Failed to retrieve document.'
+      }
+    });
+  }
+}
+
+/**
+ * Delete a policy by ID, cleanup disk files, and unlink from users.
+ */
+export async function deletePolicy(req: Request, res: Response): Promise<void> {
+  try {
+    const id = req.params.id;
+    const policy = await Policy.findById(id);
+
+    if (!policy) {
+      res.status(404).json({
+        error: {
+          code: 'POLICY_NOT_FOUND',
+          message: `Policy with id "${id}" not found.`
+        }
+      });
+      return;
+    }
+
+    // Delete associated uploaded file if present
+    if (policy.rawTextRef) {
+      try {
+        const filePath = path.resolve(__dirname, '../../', policy.rawTextRef);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch (fileErr) {
+        console.warn('[Delete Policy File Warning]:', fileErr);
+      }
+    }
+
+    // Remove from Policy collection
+    await Policy.findByIdAndDelete(id);
+
+    // Remove from all users' savedPolicyIds
+    try {
+      await User.updateMany(
+        { savedPolicyIds: id },
+        { $pull: { savedPolicyIds: id } }
+      );
+    } catch (userErr) {
+      console.warn('[User Unlink Warning]:', userErr);
+    }
+
+    res.status(200).json({ success: true, message: 'Policy deleted successfully.' });
+  } catch (err: any) {
+    console.error('[Delete Policy Error]:', err);
+    res.status(500).json({
+      error: {
+        code: 'INTERNAL_SERVER_ERROR',
+        message: err.message || 'Failed to delete policy.'
       }
     });
   }
