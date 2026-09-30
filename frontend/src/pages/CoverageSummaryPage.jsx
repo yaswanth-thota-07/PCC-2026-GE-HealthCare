@@ -237,7 +237,7 @@ export default function CoverageSummaryPage({
       </section>
 
       {/* 4 Cards Grid */}
-      <div className="features-grid" style={{ gridTemplateColumns: 'repeat(2, 1fr)', gap: '20px' }}>
+      <div className="coverage-cards-grid">
         {/* CARD 1: Key Financial Limits */}
         <div className="feature-card" style={{ gap: '16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>

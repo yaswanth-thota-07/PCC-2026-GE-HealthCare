@@ -434,16 +434,7 @@ export default function HospitalDiscoveryPage({
         </div>
 
         {/* High-Visibility Policy Metrics (Sum Insured, Room Rent, Co-Pay, Exclusions) */}
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-            gap: '16px',
-            width: '100%',
-            paddingTop: '16px',
-            borderTop: '1px solid var(--color-border)'
-          }}
-        >
+        <div className="discovery-policy-metrics">
           {/* Sum Insured */}
           <div
             style={{
@@ -564,7 +555,7 @@ export default function HospitalDiscoveryPage({
         </div>
 
         {/* 4 Primary Inputs Row */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '16px' }}>
+        <div className="discovery-filters-grid">
           {/* City */}
           <div className="field" ref={cityDropdownRef} style={{ position: 'relative' }}>
             <label className="field-label" style={{ fontSize: '12px', fontWeight: 600 }}>
@@ -771,9 +762,9 @@ export default function HospitalDiscoveryPage({
 
         {/* Secondary: Search bar + quick filters */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px', paddingTop: '8px', borderTop: '1px solid var(--color-border)' }}>
-          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div className="discovery-subfilters-row" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
             {/* Search Input */}
-            <div style={{ flex: 1, minWidth: '260px', position: 'relative' }}>
+            <div style={{ flex: 1, minWidth: 'min(100%, 240px)', position: 'relative' }}>
               <input
                 type="text"
                 className="field-input"

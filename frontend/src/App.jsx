@@ -4,6 +4,7 @@ import UploadPage from './pages/UploadPage';
 import CoverageSummaryPage from './pages/CoverageSummaryPage';
 import HospitalDiscoveryPage from './pages/HospitalDiscoveryPage';
 import CareJourneyPage from './pages/CareJourneyPage';
+import HowItWorksPage from './pages/HowItWorksPage';
 import AuthModal from './components/AuthModal';
 import ProfileModal from './components/ProfileModal';
 import { useAuth } from './context/AuthContext';
@@ -19,6 +20,7 @@ export default function App() {
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   // Restore session from localStorage if available
+  const [previousView, setPreviousView] = useState('upload');
   const [currentView, setCurrentView] = useState(() => {
     try {
       const saved = localStorage.getItem('sehatsure_session');
@@ -76,7 +78,7 @@ export default function App() {
 
   // Protect unauthenticated access: require login before accessing summary, discovery or journey
   useEffect(() => {
-    if (!user && currentView !== 'upload') {
+    if (!user && currentView !== 'upload' && currentView !== 'how-it-works') {
       setCurrentView('upload');
       handleOpenAuth('login', 'Please log in first to access your insurance policy.');
     }
@@ -223,6 +225,23 @@ export default function App() {
     }
   };
 
+  const handleOpenHowItWorks = () => {
+    if (currentView !== 'how-it-works') {
+      setPreviousView(currentView);
+    }
+    setCurrentView('how-it-works');
+  };
+
+  const handleCloseHowItWorks = () => {
+    if (previousView && previousView !== 'how-it-works') {
+      setCurrentView(previousView);
+    } else if (activePolicy) {
+      setCurrentView(activePolicy.confirmedByUser ? 'discovery' : 'summary');
+    } else {
+      setCurrentView('upload');
+    }
+  };
+
   return (
     <div className="app-shell">
       <Navbar
@@ -235,11 +254,21 @@ export default function App() {
         onGoToJourney={handleGoToJourney}
         onOpenAuth={(mode) => handleOpenAuth(mode)}
         onOpenProfile={handleOpenProfile}
+        onOpenHowItWorks={handleOpenHowItWorks}
       />
 
       <div className="page">
         <div className="canvas">
           <main>
+            {currentView === 'how-it-works' && (
+              <HowItWorksPage
+                activePolicy={activePolicy}
+                onBack={handleCloseHowItWorks}
+                onGoHome={handleGoHome}
+                onGoToDiscovery={() => setCurrentView('discovery')}
+              />
+            )}
+
             {currentView === 'upload' && (
               <UploadPage
                 onPolicyLoaded={handlePolicyLoaded}

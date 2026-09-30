@@ -444,7 +444,7 @@ export default function ProfileModal({
                   </p>
                 </div>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '14px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 300px), 1fr))', gap: '14px' }}>
                   {savedHospitals.map((hosp) => (
                     <div
                       key={hosp.hospitalKey || hosp.hospital_name}

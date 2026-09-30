@@ -55,7 +55,8 @@
     "policySummary": "Policy Summary",
     "hospitals": "Hospitals",
     "careJourney": "Care Journey",
-    "changePolicy": "Change Policy",
+    "howItWorks": "How It Works",
+    "changePolicy": "How It Works",
     "demoPolicies": "Demo Policies"
   },
   "footer": {
