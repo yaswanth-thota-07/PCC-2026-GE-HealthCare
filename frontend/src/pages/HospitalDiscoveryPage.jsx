@@ -359,6 +359,28 @@ export default function HospitalDiscoveryPage({
       list.sort((a, b) => a.rank - b.rank);
     }
 
+    // Deduplicate any repeated hospital facilities by normalized core name
+    const seen = new Set();
+    list = list.filter((item) => {
+      const h = item.hospital;
+      const coreKey = (h.hospital_name || '')
+        .toLowerCase()
+        .replace(/[""''`’“”]/g, '')
+        .replace(/&amp;/g, 'and')
+        .replace(/&/g, 'and')
+        .replace(/\bspeciality\b/g, 'specialty')
+        .replace(/\bcentre\b/g, 'center')
+        .replace(/\bchildrens?\b/g, 'children')
+        .replace(/\b(a unit of|unit of|managed by|under|pvt|private|ltd|limited|nr|near|opp|behind)\b.*$/i, '')
+        .replace(/[\-,]\s*(mulund|vashi|parel|ulwe|thane|panvel|ghansoli|chembur|andheri|borivali|dadar|mahalaxmi|kharghar|airoli|sanpada|nerul|belapur|koparkhairane|dombivli|kalyan|nashik|pune|bengaluru|bangalore|delhi|mumbai).*$/i, '')
+        .replace(/[^a-z0-9]/g, '')
+        .trim();
+      if (!coreKey) return true;
+      if (seen.has(coreKey)) return false;
+      seen.add(coreKey);
+      return true;
+    });
+
     return list;
   }, [hospitals, searchQuery, typeFilter, sortBy, selectedSpecialty, policy?.insurer, networkOnly]);
 

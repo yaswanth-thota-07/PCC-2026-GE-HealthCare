@@ -224,6 +224,89 @@ export const CITY_CANONICAL_TIERS: Record<string, string> = {
   'srinagar': 'City 1'
 };
 
+export const CITY_METRO_CLUSTERS: Record<string, string[]> = {
+  'mumbai': ['mumbai', 'navi mumbai', 'navimumbai', 'thane', 'mumbai suburban', 'mumbai subueban', 'greater mumbai'],
+  'bombay': ['mumbai', 'navi mumbai', 'navimumbai', 'thane', 'mumbai suburban', 'mumbai subueban', 'greater mumbai'],
+  'delhi': ['delhi', 'new delhi', 'noida', 'greater noida', 'gurgaon', 'gurugram', 'faridabad', 'ghaziabad'],
+  'new delhi': ['delhi', 'new delhi', 'noida', 'greater noida', 'gurgaon', 'gurugram', 'faridabad', 'ghaziabad'],
+  'bengaluru': ['bengaluru', 'bangalore', 'bangalore urban', 'bangalore rural'],
+  'bangalore': ['bengaluru', 'bangalore', 'bangalore urban', 'bangalore rural'],
+  'hyderabad': ['hyderabad', 'secunderabad', 'cyberabad'],
+  'secunderabad': ['hyderabad', 'secunderabad', 'cyberabad'],
+  'kolkata': ['kolkata', 'calcutta', 'howrah'],
+  'calcutta': ['kolkata', 'calcutta', 'howrah'],
+  'chennai': ['chennai', 'madras'],
+  'madras': ['chennai', 'madras'],
+  'pune': ['pune', 'pimpri', 'chinchwad', 'pimpri chinchwad'],
+  'ahmedabad': ['ahmedabad', 'gandhinagar'],
+  'gandhinagar': ['ahmedabad', 'gandhinagar'],
+  'chandigarh': ['chandigarh', 'mohali', 'panchkula']
+};
+
+export function normalizeHospitalCore(name: string): string {
+  if (!name) return '';
+  let n = name.toLowerCase();
+
+  // Strip quotes and punctuation variations
+  n = n.replace(/[""''`’“”]/g, '');
+  n = n.replace(/&amp;/g, 'and').replace(/&/g, 'and');
+
+  // Normalize common medical / hospital terms
+  n = n.replace(/\bspeciality\b/g, 'specialty');
+  n = n.replace(/\bcentre\b/g, 'center');
+  n = n.replace(/\bchildrens\b/g, 'children');
+  n = n.replace(/\bchildren['’]?s\b/g, 'children');
+  n = n.replace(/\bhospitals\b/g, 'hospital');
+
+  // Remove affiliations, units, corporate noise
+  n = n.replace(/\b(a unit of|unit of|managed by|under|subsidiary of)\b.*$/i, '');
+  n = n.replace(/\b(pvt|private)\s*(ltd|limited)?\b/gi, '');
+  n = n.replace(/\bltd\b/gi, '');
+  n = n.replace(/\b(nr|near|opp|opposite|behind)\b.*$/i, '');
+
+  // Remove trailing location tags after dash or comma
+  n = n.replace(/[\-,]\s*(mulund|vashi|parel|ulwe|thane|panvel|ghansoli|chembur|andheri|borivali|dadar|mahalaxmi|kharghar|airoli|sanpada|nerul|belapur|koparkhairane|dombivli|kalyan|nashik|pune|bengaluru|bangalore|delhi|mumbai).*$/i, '');
+  n = n.replace(/\([^)]*\)/g, '');
+
+  // Strip single-letter orphan 's' (e.g. from "children""s")
+  n = n.replace(/\b[s]\b/g, ' ');
+
+  // Strip non-alphanumeric and extra spaces
+  n = n.replace(/[^a-z0-9]/g, ' ').replace(/\s+/g, ' ').trim();
+  return n;
+}
+
+export function deduplicateHospitalRecords(candidates: HospitalRecord[]): HospitalRecord[] {
+  const seenKeys = new Map<string, HospitalRecord>();
+
+  for (const h of candidates) {
+    const coreName = normalizeHospitalCore(h.hospital_name);
+    if (!coreName) continue;
+
+    const key = coreName;
+
+    if (!seenKeys.has(key)) {
+      seenKeys.set(key, { ...h });
+    } else {
+      const existing = seenKeys.get(key)!;
+      // Merge unique insurers so no insurer network match is lost
+      const combinedInsurers = Array.from(new Set([...(existing.insurers || []), ...(h.insurers || [])]));
+      existing.insurers = combinedInsurers;
+
+      // Merge unique specialties
+      const combinedSpecialties = Array.from(new Set([...(existing.specialties || []), ...(h.specialties || [])]));
+      existing.specialties = combinedSpecialties;
+
+      // Prefer higher rating
+      if ((h.rating || 0) > (existing.rating || 0)) {
+        existing.rating = h.rating;
+      }
+    }
+  }
+
+  return Array.from(seenKeys.values());
+}
+
 function normalize(value: unknown): string {
   return String(value || '')
     .trim()
@@ -1909,15 +1992,25 @@ export class HospitalService {
 
     if (city && city.trim().length > 0) {
       const normCity = normalize(city);
-      candidateHospitals = this.hospitalsByCity.get(normCity) || [];
+      const canonicalTier = CITY_CANONICAL_TIERS[normCity];
+      const cluster = CITY_METRO_CLUSTERS[normCity] || [normCity];
+
+      candidateHospitals = this.hospitals.filter(h => {
+        const cNorm = normalize(h.city);
+        const cityMatch = cluster.includes(cNorm) || cNorm === normCity;
+        if (!cityMatch) return false;
+        if (canonicalTier && h.tier && h.tier !== canonicalTier) return false;
+        return true;
+      });
+
       if (candidateHospitals.length === 0) {
-        candidateHospitals = this.hospitals.filter(h =>
-          normalize(h.city).includes(normCity) || normalize(h.address).includes(normCity)
-        );
+        candidateHospitals = this.hospitalsByCity.get(normCity) || [];
       }
     } else {
       candidateHospitals = this.hospitalsByCity.get('bengaluru') || this.hospitals.slice(0, 500);
     }
+
+    candidateHospitals = deduplicateHospitalRecords(candidateHospitals);
 
     // Step 1: Medical Specialty Matched Count in this location
     let specialtyMatchedCount = candidateHospitals.length;
@@ -2063,12 +2156,20 @@ export class HospitalService {
     const mongoQuery: any = {};
     if (city && city.trim().length > 0) {
       const normCity = normalize(city);
+      const canonicalTier = CITY_CANONICAL_TIERS[normCity];
+      const cluster = CITY_METRO_CLUSTERS[normCity] || [normCity];
+
       mongoQuery.$or = [
-        { cityNormalized: normCity },
-        { address: { $regex: normCity.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), $options: 'i' } }
+        { cityNormalized: { $in: cluster } },
+        { cityNormalized: normCity }
       ];
+
+      if (canonicalTier) {
+        mongoQuery.tier = canonicalTier;
+      }
     } else {
       mongoQuery.cityNormalized = 'bengaluru';
+      mongoQuery.tier = 'Metro 1';
     }
 
     if (query && query.trim().length > 0) {
@@ -2118,6 +2219,9 @@ export class HospitalService {
     if (candidateHospitals.length === 0 && (!city || city.trim().toLowerCase() === 'bengaluru')) {
       candidateHospitals = this.hospitals.slice(0, 500);
     }
+
+    // Deduplicate candidate hospitals so no hospital appears twice
+    candidateHospitals = deduplicateHospitalRecords(candidateHospitals);
 
     // Step 1: Medical Specialty Matched Count in this location
     let specialtyMatchedCount = candidateHospitals.length;

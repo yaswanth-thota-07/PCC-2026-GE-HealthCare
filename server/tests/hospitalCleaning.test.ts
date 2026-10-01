@@ -70,4 +70,54 @@ describe('Clean Hospital Dataset & City Search Integrity', () => {
       }
     }
   });
+
+  it('should return only Metro 1 hospitals for Mumbai with no cross-city pollution (Nashik, Pune, Raigad)', () => {
+    const res = hospitalService.search({
+      policy: mockPolicy,
+      city: 'Mumbai'
+    });
+
+    expect(res.hospitals.length).toBeGreaterThan(0);
+    for (const item of res.hospitals) {
+      // Must be Metro 1
+      expect(item.hospital.tier).toBe('Metro 1');
+      // Must not be from other distant cities
+      const city = (item.hospital.city || '').toLowerCase();
+      expect(city).not.toBe('nashik');
+      expect(city).not.toBe('pune');
+      expect(city).not.toBe('raigad');
+      expect(city).not.toBe('agra');
+    }
+  });
+
+  it('should return only Metro 2 hospitals for Pune', () => {
+    const res = hospitalService.search({
+      policy: mockPolicy,
+      city: 'Pune'
+    });
+
+    expect(res.hospitals.length).toBeGreaterThan(0);
+    for (const item of res.hospitals) {
+      expect(item.hospital.tier).toBe('Metro 2');
+      const city = (item.hospital.city || '').toLowerCase();
+      expect(city).not.toBe('mumbai');
+      expect(city).not.toBe('nashik');
+    }
+  });
+
+  it('should not contain duplicate hospitals in search results or specialty fit', () => {
+    const res = hospitalService.search({
+      policy: mockPolicy,
+      city: 'Mumbai',
+      specialty: 'Pediatrics'
+    });
+
+    const seenNames = new Set<string>();
+    for (const item of res.hospitals) {
+      const name = item.hospital.hospital_name.trim().toLowerCase();
+      expect(seenNames.has(name)).toBe(false);
+      seenNames.add(name);
+    }
+  });
 });
+
