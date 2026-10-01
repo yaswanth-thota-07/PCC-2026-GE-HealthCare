@@ -27,6 +27,7 @@ import mongoose from 'mongoose';
 import { connectDB } from '../config/db.js';
 import { HospitalModel } from '../models/Hospital.js';
 import { ProcedureCostModel } from '../models/ProcedureCost.js';
+import { sanitizeHospitalSpecialties } from '../utils/specialtySanitizer.js';
 
 
 const __filename = fileURLToPath(import.meta.url);
@@ -599,7 +600,7 @@ export class HospitalService {
         insurers: (h.insurers || []).map((ins: string) => internString(ins)),
         insurersRaw: h.insurersRaw || '',
         rating: h.rating || 0,
-        specialties: (h.specialties || []).map((s: string) => internString(s)),
+        specialties: sanitizeHospitalSpecialties(h.hospital_name, h.specialties || []).map((s: string) => internString(s)),
         tier: internString(h.tier || 'City 1'),
         segment: internString(h.segment || 'Standard Private')
       }));
@@ -725,10 +726,12 @@ export class HospitalService {
           ratingVal = 0;
         }
 
-        const specialties = (obj.specialties || '')
+        const rawSpecialties = (obj.specialties || '')
           .split(';')
           .map(s => internString(s.trim()))
           .filter(Boolean);
+
+        const specialties = sanitizeHospitalSpecialties(hospitalName, rawSpecialties).map(s => internString(s));
 
         if (specialties.length === 0) {
           missingSpecialtyCount++;
@@ -826,10 +829,12 @@ export class HospitalService {
         ratingVal = 0;
       }
 
-      const specialties = (obj.specialties || '')
+      const rawSpecialties = (obj.specialties || '')
         .split(';')
         .map(s => s.trim())
         .filter(Boolean);
+
+      const specialties = sanitizeHospitalSpecialties(hospitalName, rawSpecialties);
 
       if (specialties.length === 0) {
         missingSpecialtyCount++;
@@ -1726,12 +1731,44 @@ export class HospitalService {
     procedure?: string,
     roomType: RoomCategory = 'General Ward'
   ): PolicyImpactBreakdown | null {
-    const hosp = this.hospitals.find(h =>
-      normalize(h.hospital_name) === normalize(hospitalName) &&
-      normalize(h.address).includes(normalize(hospitalAddress).slice(0, 20))
-    ) || this.hospitals.find(h => normalize(h.hospital_name) === normalize(hospitalName));
+    const normTargetName = normalize(hospitalName);
+    const coreTargetName = normalizeHospitalCore(hospitalName);
+    const normTargetAddr = normalize(hospitalAddress);
+    const addrSlice = normTargetAddr.slice(0, 20);
 
-    if (!hosp) return null;
+    const matches = this.hospitals.filter(h => {
+      const matchName = normalize(h.hospital_name) === normTargetName || normalizeHospitalCore(h.hospital_name) === coreTargetName;
+      if (!matchName) return false;
+      if (addrSlice && h.address) {
+        return normalize(h.address).includes(addrSlice) || addrSlice.includes(normalize(h.address).slice(0, 20));
+      }
+      return true;
+    });
+
+    let rawHosp = matches[0] || this.hospitals.find(h => normalize(h.hospital_name) === normTargetName) || this.hospitals.find(h => normalizeHospitalCore(h.hospital_name) === coreTargetName);
+    if (!rawHosp) return null;
+
+    // Consolidate insurer network & specialties across duplicate entries/branches for this hospital core (parity with deduplicateHospitalRecords)
+    const relatedRecords = this.hospitals.filter(h =>
+      normalizeHospitalCore(h.hospital_name) === coreTargetName &&
+      (normalize(h.city) === normalize(rawHosp.city) || (!h.city && !rawHosp.city))
+    );
+
+    const mergedInsurers = Array.from(new Set([
+      ...(rawHosp.insurers || []),
+      ...relatedRecords.flatMap(h => h.insurers || [])
+    ]));
+
+    const mergedSpecialties = Array.from(new Set([
+      ...(rawHosp.specialties || []),
+      ...relatedRecords.flatMap(h => h.specialties || [])
+    ]));
+
+    const hosp: HospitalRecord = {
+      ...rawHosp,
+      insurers: mergedInsurers,
+      specialties: mergedSpecialties
+    };
 
     const estimate = this.calculateHospitalEstimate(hosp, specialty, procedure, roomType);
     if (!estimate.available) return null;
@@ -2211,7 +2248,7 @@ export class HospitalService {
       insurers: d.insurers || [],
       insurersRaw: d.insurersRaw || '',
       rating: d.rating || 0,
-      specialties: d.specialties || [],
+      specialties: sanitizeHospitalSpecialties(d.hospital_name, d.specialties || []),
       tier: d.tier,
       segment: d.segment
     }));

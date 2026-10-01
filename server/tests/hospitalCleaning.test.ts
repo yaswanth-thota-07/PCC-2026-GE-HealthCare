@@ -119,5 +119,46 @@ describe('Clean Hospital Dataset & City Search Integrity', () => {
       seenNames.add(name);
     }
   });
+
+  it('should sanitize dedicated single-specialty hospitals (e.g. Eye hospital must not have Cardiology or Orthopedics)', () => {
+    // 1. Search Cardiology in Bengaluru: must NOT include eye hospitals like Nethradhama or Dr. Agarwals
+    const cardioRes = hospitalService.search({
+      policy: mockPolicy,
+      city: 'Bengaluru',
+      specialty: 'Cardiology'
+    });
+
+    for (const item of cardioRes.hospitals) {
+      const name = item.hospital.hospital_name.toLowerCase();
+      expect(name).not.toContain('nethradhama');
+      expect(name).not.toContain('eye hospital');
+      expect(name).not.toContain('netralaya');
+    }
+
+    // 2. Search Orthopedics in Bengaluru: must NOT include eye hospitals
+    const orthoRes = hospitalService.search({
+      policy: mockPolicy,
+      city: 'Bengaluru',
+      specialty: 'Orthopedics'
+    });
+
+    for (const item of orthoRes.hospitals) {
+      const name = item.hospital.hospital_name.toLowerCase();
+      expect(name).not.toContain('nethradhama');
+      expect(name).not.toContain('eye hospital');
+      expect(name).not.toContain('netralaya');
+    }
+
+    // 3. Search Ophthalmology in Bengaluru: must include eye hospitals like Nethradhama
+    const eyeRes = hospitalService.search({
+      policy: mockPolicy,
+      city: 'Bengaluru',
+      specialty: 'Ophthalmology'
+    });
+
+    const eyeHospitalNames = eyeRes.hospitals.map(h => h.hospital.hospital_name.toLowerCase());
+    const hasEyeHospital = eyeHospitalNames.some(n => n.includes('nethradhama') || n.includes('eye hospital') || n.includes('netralaya'));
+    expect(hasEyeHospital).toBe(true);
+  });
 });
 

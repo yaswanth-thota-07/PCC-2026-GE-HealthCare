@@ -11,6 +11,7 @@ import {
   parseCSVRecords,
   CITY_CANONICAL_TIERS
 } from '../services/hospitalService.js';
+import { sanitizeHospitalSpecialties } from '../utils/specialtySanitizer.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -238,10 +239,12 @@ export async function seedDatasets(force = false): Promise<{ hospitalsCount: num
       ratingVal = 0;
     }
 
-    const specialties = (obj.specialties || '')
+    const rawSpecialties = (obj.specialties || '')
       .split(';')
       .map(s => s.trim())
       .filter(Boolean);
+
+    const specialties = sanitizeHospitalSpecialties(hospitalName, rawSpecialties);
 
     const insurersList = (obj.insurers || '')
       .split(',')
